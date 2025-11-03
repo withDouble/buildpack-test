@@ -28,11 +28,30 @@ fi
 
 # Get token from 1Password
 export OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN:-}"
-npm_read_token=$(op read "op://CI-CD/NPM Read Token/password")
 
-if [ "$npm_read_token" != "" ]; then
-	echo "-----> Using .npmrc from 1Password"
-	echo "//registry.npmjs.org/:_authToken=${npm_read_token}" > "$build_dir/.npmrc"
+if [ -z "${OP_SERVICE_ACCOUNT_TOKEN}" ]; then
+	echo "-----> WARNING: OP_SERVICE_ACCOUNT_TOKEN not set"
+	echo "       Skipping .npmrc creation from 1Password"
+	echo "       Set OP_SERVICE_ACCOUNT_TOKEN config var in Heroku to enable private npm package access"
+else
+	echo "-----> Fetching NPM token from 1Password"
+	
+	# Capture both stdout and stderr, and check exit code
+	if npm_read_token=$(op read "op://CI-CD/NPM Read Token/password" 2>&1); then
+		if [ -n "$npm_read_token" ]; then
+			echo "-----> Using .npmrc from 1Password"
+			echo "//registry.npmjs.org/:_authToken=${npm_read_token}" > "$build_dir/.npmrc"
+		else
+			echo "-----> ERROR: Token retrieved but is empty"
+			echo "       Build will continue but may fail if private packages are required"
+		fi
+	else
+		error_output="$npm_read_token"
+		echo "-----> ERROR: Failed to read token from 1Password"
+		echo "       Error: ${error_output}"
+		echo "       Verify OP_SERVICE_ACCOUNT_TOKEN is set correctly in Heroku config vars"
+		echo "       Build will continue but may fail if private packages are required"
+	fi
 fi
 
 # Ensure profile.d directory exists for Datadog env
