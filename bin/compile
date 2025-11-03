@@ -8,84 +8,46 @@ build_dir=${1:-}
 OP_BIN_DIR="${build_dir}/.heroku/bin"
 mkdir -p "${OP_BIN_DIR}"
 
-# Add op directory to PATH first so we can use it
-export PATH="${OP_BIN_DIR}:${PATH}"
-
-# Log relevant config vars for debugging (mask sensitive values)
-echo "-----> Checking environment variables"
-echo "       ENV_DIR: ${ENV_DIR:-NOT SET}"
-if [ -f "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN" ]; then
-	ENV_DIR_TOKEN=$(cat "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN")
-	echo "       OP_SERVICE_ACCOUNT_TOKEN in ENV_DIR: SET (${#ENV_DIR_TOKEN} chars)"
-	masked_token="${ENV_DIR_TOKEN:0:4}...${ENV_DIR_TOKEN: -4}"
-	echo "       OP_SERVICE_ACCOUNT_TOKEN (ENV_DIR) preview: ${masked_token}"
-fi
-echo "       OP_SERVICE_ACCOUNT_TOKEN (env var): ${OP_SERVICE_ACCOUNT_TOKEN:+SET (${#OP_SERVICE_ACCOUNT_TOKEN} chars)}${OP_SERVICE_ACCOUNT_TOKEN:-NOT SET}"
-echo "       SOURCE_VERSION: ${SOURCE_VERSION:-NOT SET}"
-
-# List other relevant env vars (filter for OP_, NPM_, NODE_ prefixes, mask sensitive values)
-echo "       Relevant env vars:"
-env | grep -E '^(OP_|NPM_|NODE_|SOURCE_VERSION)=' | while IFS='=' read -r key value; do
-	if [[ "$key" =~ (TOKEN|PASSWORD|SECRET|KEY|AUTH) ]]; then
-		# Mask sensitive values - show first 4 and last 4 chars
-		if [ -n "$value" ] && [ ${#value} -gt 8 ]; then
-			masked="${value:0:4}...${value: -4}"
-			echo "         ${key}=${masked}"
-		else
-			echo "         ${key}=[REDACTED]"
-		fi
-	else
-		echo "         ${key}=${value}"
-	fi
-done || echo "         (none found)"
-
-if ! command -v op &> /dev/null && [ ! -f "${OP_BIN_DIR}/op" ]; then
+if [ ! -f "${OP_BIN_DIR}/op" ]; then
 	echo "-----> Installing 1Password CLI"
-	OP_VERSION="v2.26.0"
-	ARCH="amd64"
-	OS="linux"
-	
-	OP_URL="https://cache.agilebits.com/dist/1P/op2/pkg/${OP_VERSION}/op_${OS}_${ARCH}_${OP_VERSION}.zip"
-	
-	curl -sSfL "${OP_URL}" -o /tmp/op.zip
+	curl -sSfL "https://cache.agilebits.com/dist/1P/op2/pkg/v2.26.0/op_linux_amd64_v2.26.0.zip" -o /tmp/op.zip
 	unzip -q /tmp/op.zip -d /tmp
 	chmod +x /tmp/op
 	mv /tmp/op "${OP_BIN_DIR}/op"
 	rm -f /tmp/op.zip
 fi
 
-# Get token from 1Password
-# Read from ENV_DIR first (Heroku buildpack way), then fallback to environment variable
-if [ -f "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN" ]; then
-	OP_SERVICE_ACCOUNT_TOKEN="$(cat "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN")"
-	echo "-----> Found OP_SERVICE_ACCOUNT_TOKEN in ENV_DIR"
-fi
+# Add op directory to PATH
+export PATH="${OP_BIN_DIR}:${PATH}"
 
-export OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN:-}"
-
-if [ -z "${OP_SERVICE_ACCOUNT_TOKEN}" ]; then
-	echo "-----> WARNING: OP_SERVICE_ACCOUNT_TOKEN not set"
-	echo "       Skipping .npmrc creation from 1Password"
+# Get 1Password service account token from ENV_DIR
+# This token is used to authenticate with 1Password CLI
+OP_SERVICE_ACCOUNT_TOKEN="$(cat "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN" 2>/dev/null)"
+if [ -z "$OP_SERVICE_ACCOUNT_TOKEN" ]; then
+	echo "-----> ERROR: OP_SERVICE_ACCOUNT_TOKEN not found or empty in ENV_DIR"
 	echo "       Set OP_SERVICE_ACCOUNT_TOKEN config var in Heroku to enable private npm package access"
-else
-	echo "-----> Fetching NPM token from 1Password"
-	
-	# Capture both stdout and stderr, and check exit code
-	if npm_read_token=$(op read "op://CI-CD/NPM Read Token/password" 2>&1); then
-		if [ -n "$npm_read_token" ]; then
-			echo "-----> Using .npmrc from 1Password"
-			echo "//registry.npmjs.org/:_authToken=${npm_read_token}" > "$build_dir/.npmrc"
-		else
-			echo "-----> ERROR: Token retrieved but is empty"
-			echo "       Build will continue but may fail if private packages are required"
-		fi
+	exit 1
+fi
+export OP_SERVICE_ACCOUNT_TOKEN
+
+echo "-----> Fetching NPM token from 1Password"
+
+# Capture both stdout and stderr, and check exit code
+if npm_read_token=$(op read "op://CI-CD/NPM Read Token/password" 2>&1); then
+	if [ -n "$npm_read_token" ]; then
+		echo "-----> Using .npmrc from 1Password"
+		echo "//registry.npmjs.org/:_authToken=${npm_read_token}" > "$build_dir/.npmrc"
 	else
-		error_output="$npm_read_token"
-		echo "-----> ERROR: Failed to read token from 1Password"
-		echo "       Error: ${error_output}"
-		echo "       Verify OP_SERVICE_ACCOUNT_TOKEN is set correctly in Heroku config vars"
-		echo "       Build will continue but may fail if private packages are required"
+		echo "-----> ERROR: NPM token retrieved but is empty"
+		echo "       Verify the secret exists in 1Password at op://CI-CD/NPM Read Token/password"
+		exit 1
 	fi
+else
+	error_output="$npm_read_token"
+	echo "-----> ERROR: Failed to read token from 1Password"
+	echo "       Error: ${error_output}"
+	echo "       Verify OP_SERVICE_ACCOUNT_TOKEN is set correctly in Heroku config vars"
+	exit 1
 fi
 
 # Ensure profile.d directory exists for Datadog env
