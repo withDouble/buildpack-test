@@ -21,9 +21,21 @@ if [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
 	echo "       OP_SERVICE_ACCOUNT_TOKEN preview: ${masked_token}"
 fi
 
-# List other relevant env vars (filter for OP_, NPM_, NODE_ prefixes)
+# List other relevant env vars (filter for OP_, NPM_, NODE_ prefixes, mask sensitive values)
 echo "       Relevant env vars:"
-env | grep -E '^(OP_|NPM_|NODE_|SOURCE_VERSION)=' | sed 's/^/         /' || echo "         (none found)"
+env | grep -E '^(OP_|NPM_|NODE_|SOURCE_VERSION)=' | while IFS='=' read -r key value; do
+	if [[ "$key" =~ (TOKEN|PASSWORD|SECRET|KEY|AUTH) ]]; then
+		# Mask sensitive values - show first 4 and last 4 chars
+		if [ -n "$value" ] && [ ${#value} -gt 8 ]; then
+			masked="${value:0:4}...${value: -4}"
+			echo "         ${key}=${masked}"
+		else
+			echo "         ${key}=[REDACTED]"
+		fi
+	else
+		echo "         ${key}=${value}"
+	fi
+done || echo "         (none found)"
 
 if ! command -v op &> /dev/null && [ ! -f "${OP_BIN_DIR}/op" ]; then
 	echo "-----> Installing 1Password CLI"
