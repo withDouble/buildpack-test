@@ -4,7 +4,14 @@ ENV_DIR=${3:-}
 build_dir=${1:-}
 
 # Install 1Password CLI if not present
-if ! command -v op &> /dev/null; then
+# Install to build_dir/.heroku/bin since we don't have write access to /usr/local/bin on Heroku
+OP_BIN_DIR="${build_dir}/.heroku/bin"
+mkdir -p "${OP_BIN_DIR}"
+
+# Add op directory to PATH first so we can use it
+export PATH="${OP_BIN_DIR}:${PATH}"
+
+if ! command -v op &> /dev/null && [ ! -f "${OP_BIN_DIR}/op" ]; then
 	echo "-----> Installing 1Password CLI"
 	OP_VERSION="v2.26.0"
 	ARCH="amd64"
@@ -15,7 +22,7 @@ if ! command -v op &> /dev/null; then
 	curl -sSfL "${OP_URL}" -o /tmp/op.zip
 	unzip -q /tmp/op.zip -d /tmp
 	chmod +x /tmp/op
-	mv /tmp/op /usr/local/bin/op
+	mv /tmp/op "${OP_BIN_DIR}/op"
 	rm -f /tmp/op.zip
 fi
 
