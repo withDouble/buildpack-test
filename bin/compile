@@ -11,6 +11,20 @@ mkdir -p "${OP_BIN_DIR}"
 # Add op directory to PATH first so we can use it
 export PATH="${OP_BIN_DIR}:${PATH}"
 
+# Log relevant config vars for debugging (mask sensitive values)
+echo "-----> Checking environment variables"
+echo "       OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:+SET (${#OP_SERVICE_ACCOUNT_TOKEN} chars)}${OP_SERVICE_ACCOUNT_TOKEN:-NOT SET}"
+echo "       SOURCE_VERSION: ${SOURCE_VERSION:-NOT SET}"
+if [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
+	# Show first 4 and last 4 chars for verification, but mask the middle
+	masked_token="${OP_SERVICE_ACCOUNT_TOKEN:0:4}...${OP_SERVICE_ACCOUNT_TOKEN: -4}"
+	echo "       OP_SERVICE_ACCOUNT_TOKEN preview: ${masked_token}"
+fi
+
+# List other relevant env vars (filter for OP_, NPM_, NODE_ prefixes)
+echo "       Relevant env vars:"
+env | grep -E '^(OP_|NPM_|NODE_|SOURCE_VERSION)=' | sed 's/^/         /' || echo "         (none found)"
+
 if ! command -v op &> /dev/null && [ ! -f "${OP_BIN_DIR}/op" ]; then
 	echo "-----> Installing 1Password CLI"
 	OP_VERSION="v2.26.0"
