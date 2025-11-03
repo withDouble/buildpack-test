@@ -13,13 +13,15 @@ export PATH="${OP_BIN_DIR}:${PATH}"
 
 # Log relevant config vars for debugging (mask sensitive values)
 echo "-----> Checking environment variables"
-echo "       OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:+SET (${#OP_SERVICE_ACCOUNT_TOKEN} chars)}${OP_SERVICE_ACCOUNT_TOKEN:-NOT SET}"
-echo "       SOURCE_VERSION: ${SOURCE_VERSION:-NOT SET}"
-if [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
-	# Show first 4 and last 4 chars for verification, but mask the middle
-	masked_token="${OP_SERVICE_ACCOUNT_TOKEN:0:4}...${OP_SERVICE_ACCOUNT_TOKEN: -4}"
-	echo "       OP_SERVICE_ACCOUNT_TOKEN preview: ${masked_token}"
+echo "       ENV_DIR: ${ENV_DIR:-NOT SET}"
+if [ -f "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN" ]; then
+	ENV_DIR_TOKEN=$(cat "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN")
+	echo "       OP_SERVICE_ACCOUNT_TOKEN in ENV_DIR: SET (${#ENV_DIR_TOKEN} chars)"
+	masked_token="${ENV_DIR_TOKEN:0:4}...${ENV_DIR_TOKEN: -4}"
+	echo "       OP_SERVICE_ACCOUNT_TOKEN (ENV_DIR) preview: ${masked_token}"
 fi
+echo "       OP_SERVICE_ACCOUNT_TOKEN (env var): ${OP_SERVICE_ACCOUNT_TOKEN:+SET (${#OP_SERVICE_ACCOUNT_TOKEN} chars)}${OP_SERVICE_ACCOUNT_TOKEN:-NOT SET}"
+echo "       SOURCE_VERSION: ${SOURCE_VERSION:-NOT SET}"
 
 # List other relevant env vars (filter for OP_, NPM_, NODE_ prefixes, mask sensitive values)
 echo "       Relevant env vars:"
@@ -53,6 +55,12 @@ if ! command -v op &> /dev/null && [ ! -f "${OP_BIN_DIR}/op" ]; then
 fi
 
 # Get token from 1Password
+# Read from ENV_DIR first (Heroku buildpack way), then fallback to environment variable
+if [ -f "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN" ]; then
+	OP_SERVICE_ACCOUNT_TOKEN="$(cat "$ENV_DIR/OP_SERVICE_ACCOUNT_TOKEN")"
+	echo "-----> Found OP_SERVICE_ACCOUNT_TOKEN in ENV_DIR"
+fi
+
 export OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN:-}"
 
 if [ -z "${OP_SERVICE_ACCOUNT_TOKEN}" ]; then
