@@ -106,6 +106,42 @@ if [ -f "${PROJ_NPMRC}" ]; then
   grep -qE '^@withdouble:registry=' "${PROJ_NPMRC}" || echo "@withdouble:registry=https://registry.npmjs.org/" >> "${PROJ_NPMRC}"
 fi
 
+echo "-----> [debug] env summary"
+echo "HOME=$HOME"
+echo "PWD=$PWD"
+command -v node >/dev/null 2>&1 && node -v || echo "node: (not yet)"
+command -v npm  >/dev/null 2>&1 && npm  -v || echo "npm:  (not yet)"
+
+echo "-----> [debug] check ~/.npmrc exists"
+if [ -f "$HOME/.npmrc" ]; then
+  ls -l "$HOME/.npmrc"
+  echo "[first 3 lines]"
+  head -n 3 "$HOME/.npmrc" || true
+else
+  echo "(no ~/.npmrc found)"
+fi
+
+PROJ_NPMRC="${BUILD_DIR}/.npmrc"
+echo "-----> [debug] check project .npmrc at $PROJ_NPMRC"
+if [ -f "$PROJ_NPMRC" ]; then
+  ls -l "$PROJ_NPMRC"
+  echo "[first 5 lines]"
+  head -n 5 "$PROJ_NPMRC" || true
+else
+  echo "(no project .npmrc)"
+fi
+
+echo "-----> [debug] npm config paths (if npm present)"
+npm config get userconfig 2>/dev/null || true
+npm config get globalconfig 2>/dev/null || true
+npm config get @withdouble:registry 2>/dev/null || true
+
+echo "-----> [debug] npm view smoke test (if npm present)"
+npm view @withdouble/ordering@0.1.1 name version 2>/dev/null \
+  && echo "[OK] npm view succeeded here" \
+  || echo "[WARN] npm view not available yet (Node buildpack hasn’t installed npm)"
+
+
 
 
 # Ensure profile.d directory exists for Datadog env
