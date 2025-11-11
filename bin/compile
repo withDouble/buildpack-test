@@ -50,6 +50,14 @@ if [ -z "${NPM_TOKEN_VALUE}" ]; then
   exit 1
 fi
 
+echo "-----> [probe] HEAD package metadata with bearer token"
+PKG_META_URL="https://registry.npmjs.org/%40withdouble%2Fordering"
+if curl -fsSI -H "Authorization: Bearer ${NPM_TOKEN_VALUE}" "$PKG_META_URL" >/dev/null; then
+  echo "[OK] registry responded to bearer auth"
+else
+  echo "[FAIL] bearer auth probe failed (token/registry mismatch?)"
+fi
+
 # # Make token available to the Node.js buildpack (no file written)
 # export NPM_TOKEN="${NPM_TOKEN_VALUE}"
 
