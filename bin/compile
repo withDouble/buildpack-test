@@ -53,6 +53,9 @@ fi
 # Make token available to the Node.js buildpack (no file written)
 export NPM_TOKEN="${NPM_TOKEN_VALUE}"
 
+echo "-----> NPM_TOKEN_VALUE: ${NPM_TOKEN_VALUE}"
+echo "-----> NPM_TOKEN: ${NPM_TOKEN}"
+
 # Constrain npm to always-auth so scoped packages work consistently
 export NPM_CONFIG_ALWAYS_AUTH=true
 
@@ -87,6 +90,9 @@ if [ ! -s "${NPMRC_PATH}" ] || ! grep -qF "${REQUIRED_TOKEN_LINE}" "${NPMRC_PATH
   echo "-----> ERROR: Failed to create or verify .npmrc"
   exit 1
 fi
+
+# print env variables to console
+printenv
 
 # Ensure profile.d directory exists for Datadog env
 mkdir -p "$BUILD_DIR/.profile.d"
