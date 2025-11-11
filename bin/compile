@@ -102,6 +102,7 @@ chmod 0600 "${PROJ_NPMRC}"
 
 # Debug: show first lines without leaking token value
 echo "-----> [debug] project .npmrc (first two lines)"
+echo "${PROJ_NPMRC}"
 head -n 2 "${PROJ_NPMRC}" || true
 
 
