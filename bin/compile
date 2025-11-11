@@ -90,15 +90,22 @@ fi
 
 # WRITE TOKEN TO USER-LEVEL NPMRC (visible to subsequent buildpacks, not slugged)
 USER_NPMRC="${HOME}/.npmrc"
-echo "USER_NPMRC: ${USER_NPMRC}"
-echo "-----> Writing build-time auth to \$HOME/.npmrc"
-# IMPORTANT: literal token here (no ${NPM_TOKEN})
 cat > "${USER_NPMRC}" <<EOF
 always-auth=true
 @withdouble:registry=https://registry.npmjs.org/
 //registry.npmjs.org/:_authToken=${NPM_TOKEN_VALUE}
 EOF
 chmod 0600 "${USER_NPMRC}"
+
+# Sanitize repo npmrc so it can't clobber user-level auth
+PROJ_NPMRC="${BUILD_DIR}/.npmrc"
+if [ -f "${PROJ_NPMRC}" ]; then
+  sed -i -E '/:_authToken=/d' "${PROJ_NPMRC}" || true
+  sed -i -E '/NPM_TOKEN/d'   "${PROJ_NPMRC}" || true
+  grep -qE '^always-auth=' "${PROJ_NPMRC}" || echo "always-auth=true" >> "${PROJ_NPMRC}"
+  grep -qE '^@withdouble:registry=' "${PROJ_NPMRC}" || echo "@withdouble:registry=https://registry.npmjs.org/" >> "${PROJ_NPMRC}"
+fi
+
 
 
 # Ensure profile.d directory exists for Datadog env
