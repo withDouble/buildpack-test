@@ -90,20 +90,33 @@ fi
 
 
 
-# Write a project-level .npmrc for the build (literal token)
-PROJ_NPMRC="${BUILD_DIR}/.npmrc"
-echo "-----> Writing build-scoped project .npmrc with literal token"
-cat > "${PROJ_NPMRC}" <<EOF
+# # Write a project-level .npmrc for the build (literal token)
+# PROJ_NPMRC="${BUILD_DIR}/.npmrc"
+# echo "-----> Writing build-scoped project .npmrc with literal token"
+# cat > "${PROJ_NPMRC}" <<EOF
+# always-auth=true
+# @withdouble:registry=https://registry.npmjs.org/
+# //registry.npmjs.org/:_authToken=${NPM_TOKEN_VALUE}
+# EOF
+# chmod 0600 "${PROJ_NPMRC}"
+
+# # Debug: show first lines without leaking token value
+# echo "-----> [debug] project .npmrc (first two lines)"
+# echo "${PROJ_NPMRC}"
+# head -n 2 "${PROJ_NPMRC}" || true
+
+
+# WRITE TOKEN TO USER-LEVEL NPMRC (visible to subsequent buildpacks, not slugged)
+USER_NPMRC="${HOME}/.npmrc"
+echo "-----> Writing build-time auth to \$HOME/.npmrc"
+# IMPORTANT: literal token here (no ${NPM_TOKEN})
+# Adjust the scope/registry if you use GitHub Packages instead.
+cat > "${USER_NPMRC}" <<EOF
 always-auth=true
 @withdouble:registry=https://registry.npmjs.org/
 //registry.npmjs.org/:_authToken=${NPM_TOKEN_VALUE}
 EOF
-chmod 0600 "${PROJ_NPMRC}"
-
-# Debug: show first lines without leaking token value
-echo "-----> [debug] project .npmrc (first two lines)"
-echo "${PROJ_NPMRC}"
-head -n 2 "${PROJ_NPMRC}" || true
+chmod 0600 "${USER_NPMRC}"
 
 
 
