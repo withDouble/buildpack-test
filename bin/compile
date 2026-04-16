@@ -39,15 +39,36 @@ if [ ! -f "${ENV_DIR}/OP_SERVICE_ACCOUNT_TOKEN" ] || [ ! -s "${ENV_DIR}/OP_SERVI
   exit 1
 fi
 export OP_SERVICE_ACCOUNT_TOKEN="$(cat "${ENV_DIR}/OP_SERVICE_ACCOUNT_TOKEN")"
+echo "-----> OP_SERVICE_ACCOUNT_TOKEN loaded from ENV_DIR"
 
 echo "-----> Fetching NPM token from 1Password"
-NPM_TOKEN_VALUE="$(
-  op read "${OP_NPM_TOKEN_PATH}" 2>/dev/null || true
-)"
+echo "-----> Secret path: ${OP_NPM_TOKEN_PATH}"
+echo "-----> 1Password CLI version: $(op --version || echo 'unavailable')"
+
+OP_READ_ERR_FILE="$(mktemp)"
+set +e
+NPM_TOKEN_VALUE="$(op read "${OP_NPM_TOKEN_PATH}" 2>"${OP_READ_ERR_FILE}")"
+OP_READ_EXIT_CODE=$?
+set -e
 
 if [ -z "${NPM_TOKEN_VALUE}" ]; then
   echo "-----> ERROR: NPM token missing or unreadable from 1Password"
+  echo "-----> op read exit code: ${OP_READ_EXIT_CODE}"
+  if [ -s "${OP_READ_ERR_FILE}" ]; then
+    echo "-----> op read stderr:"
+    sed 's/^/       /' "${OP_READ_ERR_FILE}"
+  else
+    echo "-----> op read stderr: <empty>"
+  fi
+  rm -f "${OP_READ_ERR_FILE}"
   exit 1
+fi
+
+rm -f "${OP_READ_ERR_FILE}"
+if [ "${#NPM_TOKEN_VALUE}" -lt 20 ]; then
+  echo "-----> WARNING: NPM token appears unusually short (${#NPM_TOKEN_VALUE} chars)"
+else
+  echo "-----> NPM token fetched successfully (${#NPM_TOKEN_VALUE} chars)"
 fi
 
 # Write a project-level .npmrc for the build (literal token)
