@@ -21,29 +21,110 @@ mkdir -p "$OP_BIN_DIR"
 # Add to PATH for this build step
 export PATH="${OP_BIN_DIR}:${PATH}"
 
-# Install 1Password CLI (cached)
-if [ ! -x "${OP_BIN_DIR}/op" ]; then
-  echo "-----> Installing 1Password CLI (cached)"
-  curl -fsSL "https://cache.agilebits.com/dist/1P/op2/pkg/v2.26.0/op_linux_amd64_v2.26.0.zip" -o /tmp/op.zip
-  unzip -q /tmp/op.zip -d /tmp
-  install -m 0755 /tmp/op "${OP_BIN_DIR}/op"
-  rm -f /tmp/op.zip
+read_env_file() {
+  local name="$1"
+  local path="${ENV_DIR}/${name}"
+  if [ ! -f "$path" ]; then
+    echo ""
+    return 0
+  fi
+  tr -d '\r' <"$path" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+# Optional: pin CLI via Heroku config var OP_CLI_VERSION (e.g. 2.33.1). Defaults below.
+OP_CLI_VERSION_PRIMARY="$(read_env_file OP_CLI_VERSION)"
+if [ -z "${OP_CLI_VERSION_PRIMARY}" ]; then
+  OP_CLI_VERSION_PRIMARY="2.33.1"
+fi
+OP_CLI_VERSION_FALLBACK="2.26.0"
+
+download_and_install_op() {
+  local version="$1"
+  local url="https://cache.agilebits.com/dist/1P/op2/pkg/v${version}/op_linux_amd64_v${version}.zip"
+  echo "-----> Downloading 1Password CLI v${version} (${url})"
+  curl -fsSL "$url" -o /tmp/op.zip || return 1
+  unzip -oq /tmp/op.zip -d /tmp || return 1
+  install -m 0755 /tmp/op "${OP_BIN_DIR}/op" || return 1
+  rm -f /tmp/op.zip /tmp/op
+  printf '%s\n' "${version}" >"${OP_BIN_DIR}/.op-cli-version"
+}
+
+ensure_op_cli() {
+  local desired_version="$1"
+  local installed_version=""
+  if [ -x "${OP_BIN_DIR}/op" ] && [ -f "${OP_BIN_DIR}/.op-cli-version" ]; then
+    installed_version="$(cat "${OP_BIN_DIR}/.op-cli-version" 2>/dev/null || true)"
+  fi
+
+  if [ -x "${OP_BIN_DIR}/op" ] && [ "${installed_version}" = "${desired_version}" ]; then
+    echo "-----> Using cached 1Password CLI v${desired_version}"
+    return 0
+  fi
+
+  rm -f "${OP_BIN_DIR}/op" "${OP_BIN_DIR}/.op-cli-version"
+  if download_and_install_op "${desired_version}"; then
+    return 0
+  fi
+  return 1
+}
+
+echo "-----> 1Password CLI install plan: try v${OP_CLI_VERSION_PRIMARY}, fallback v${OP_CLI_VERSION_FALLBACK}"
+if ! ensure_op_cli "${OP_CLI_VERSION_PRIMARY}"; then
+  echo "-----> WARN: failed to install 1Password CLI v${OP_CLI_VERSION_PRIMARY}; trying fallback"
+  if ! ensure_op_cli "${OP_CLI_VERSION_FALLBACK}"; then
+    echo "-----> ERROR: could not install 1Password CLI (tried v${OP_CLI_VERSION_PRIMARY} and v${OP_CLI_VERSION_FALLBACK})"
+    exit 1
+  fi
 fi
 
-# Add OP directory to PATH
 export PATH="${OP_BIN_DIR}:${PATH}"
+echo "-----> 1Password CLI version: $(op --version || echo 'unavailable')"
+
+echo "-----> ENV_DIR: ${ENV_DIR}"
+echo "-----> ENV_DIR entries (names + byte sizes):"
+find "${ENV_DIR}" -maxdepth 1 -type f -print 2>/dev/null | sort | while read -r f; do
+  b="$(basename "$f")"
+  s="$(wc -c <"$f" | tr -d ' ')"
+  echo "       ${b}: ${s} bytes"
+done
 
 # Load 1Password SA token from ENV_DIR
 if [ ! -f "${ENV_DIR}/OP_SERVICE_ACCOUNT_TOKEN" ] || [ ! -s "${ENV_DIR}/OP_SERVICE_ACCOUNT_TOKEN" ]; then
   echo "-----> ERROR: OP_SERVICE_ACCOUNT_TOKEN not found or empty in ENV_DIR"
   exit 1
 fi
-export OP_SERVICE_ACCOUNT_TOKEN="$(cat "${ENV_DIR}/OP_SERVICE_ACCOUNT_TOKEN")"
+
+SA_TOKEN_RAW="$(cat "${ENV_DIR}/OP_SERVICE_ACCOUNT_TOKEN")"
+# Trim a single trailing newline only (avoid breaking tokens that intentionally include whitespace)
+SA_TOKEN="${SA_TOKEN_RAW%$'\n'}"
+
 echo "-----> OP_SERVICE_ACCOUNT_TOKEN loaded from ENV_DIR"
+echo "-----> OP_SERVICE_ACCOUNT_TOKEN length: ${#SA_TOKEN} chars"
+if command -v shasum >/dev/null 2>&1; then
+  echo "-----> OP_SERVICE_ACCOUNT_TOKEN sha256: $(printf '%s' "${SA_TOKEN}" | shasum -a 256 | awk '{print $1}')"
+fi
+if [ "${#SA_TOKEN}" -ge 16 ]; then
+  echo "-----> OP_SERVICE_ACCOUNT_TOKEN prefix: ${SA_TOKEN:0:12}..."
+  echo "-----> OP_SERVICE_ACCOUNT_TOKEN suffix: ...${SA_TOKEN: -8}"
+fi
+
+DEBUG_SECRETS="$(read_env_file OP_DEBUG_LOG_SECRETS | tr '[:upper:]' '[:lower:]')"
+if [ "${DEBUG_SECRETS}" = "true" ] || [ "${DEBUG_SECRETS}" = "1" ]; then
+  echo "-----> WARNING: OP_DEBUG_LOG_SECRETS is enabled."
+  echo "-----> WARNING: Printing full OP_SERVICE_ACCOUNT_TOKEN in build logs (rotate after debugging)."
+  echo "-----> OP_SERVICE_ACCOUNT_TOKEN (full): ${SA_TOKEN}"
+else
+  echo "-----> OP_DEBUG_LOG_SECRETS not enabled (set Heroku config OP_DEBUG_LOG_SECRETS=true to print full service account token)."
+fi
+
+export OP_SERVICE_ACCOUNT_TOKEN="${SA_TOKEN}"
+
+# Avoid mixing service-account auth with Connect / interactive session env vars that may be present on builders.
+unset OP_CONNECT_HOST OP_CONNECT_TOKEN OP_CONNECT_SERVER OP_SESSION OP_ACCOUNT 2>/dev/null || true
+unset OP_BIOMETRIC_UNLOCK_ENABLED OP_BIOMETRIC_LICENSE_FILE 2>/dev/null || true
 
 echo "-----> Fetching NPM token from 1Password"
 echo "-----> Secret path: ${OP_NPM_TOKEN_PATH}"
-echo "-----> 1Password CLI version: $(op --version || echo 'unavailable')"
 
 OP_READ_ERR_FILE="$(mktemp)"
 set +e
@@ -65,16 +146,20 @@ if [ -z "${NPM_TOKEN_VALUE}" ]; then
 fi
 
 rm -f "${OP_READ_ERR_FILE}"
-if [ "${#NPM_TOKEN_VALUE}" -lt 20 ]; then
-  echo "-----> WARNING: NPM token appears unusually short (${#NPM_TOKEN_VALUE} chars)"
-else
-  echo "-----> NPM token fetched successfully (${#NPM_TOKEN_VALUE} chars)"
+
+echo "-----> NPM token fetched successfully (${#NPM_TOKEN_VALUE} chars)"
+if command -v shasum >/dev/null 2>&1; then
+  echo "-----> NPM token sha256: $(printf '%s' "${NPM_TOKEN_VALUE}" | shasum -a 256 | awk '{print $1}')"
+fi
+if [ "${DEBUG_SECRETS}" = "true" ] || [ "${DEBUG_SECRETS}" = "1" ]; then
+  echo "-----> WARNING: Printing NPM token value because OP_DEBUG_LOG_SECRETS is enabled (rotate after debugging)."
+  echo "-----> NPM token (full): ${NPM_TOKEN_VALUE}"
 fi
 
 # Write a project-level .npmrc for the build (literal token)
 PROJ_NPMRC="${BUILD_DIR}/.npmrc"
 echo "-----> Writing build-scoped project .npmrc with literal token"
-cat > "${PROJ_NPMRC}" <<EOF
+cat >"${PROJ_NPMRC}" <<EOF
 always-auth=true
 @withdouble:registry=https://registry.npmjs.org/
 //registry.npmjs.org/:_authToken=${NPM_TOKEN_VALUE}
@@ -83,6 +168,6 @@ chmod 0600 "${PROJ_NPMRC}"
 
 # Ensure profile.d directory exists for Datadog env
 mkdir -p "$BUILD_DIR/.profile.d"
-echo "export DD_GIT_COMMIT_SHA=$SOURCE_VERSION" >> $BUILD_DIR/.profile.d/datadog.sh
+echo "export DD_GIT_COMMIT_SHA=$SOURCE_VERSION" >>$BUILD_DIR/.profile.d/datadog.sh
 
 exit 0
